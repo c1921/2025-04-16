@@ -31,6 +31,7 @@ class Command(BaseModel):
     duration: float
     effect: float
     executed: bool = False
+    progress: Optional[float] = 0
 
 class CommandExecution(BaseModel):
     commands: List[Command] = []
@@ -39,6 +40,14 @@ class CommandExecution(BaseModel):
 
 # 存储当前执行状态
 current_execution: Optional[CommandExecution] = None
+
+# 预定义的命令列表
+predefined_commands = [
+    Command(id="1", name="命令A", duration=1, effect=2, executed=False, progress=0),
+    Command(id="2", name="命令B", duration=2, effect=-1, executed=False, progress=0),
+    Command(id="3", name="命令C", duration=1.5, effect=3, executed=False, progress=0),
+    Command(id="4", name="命令D", duration=0.5, effect=1, executed=False, progress=0),
+]
 
 # 请求记录中间件
 @app.middleware("http")
@@ -57,9 +66,18 @@ async def log_requests(request: Request, call_next):
     
     return response
 
+@app.get("/api/commands")
+async def get_commands():
+    """获取预定义的命令列表"""
+    return predefined_commands
+
 @app.post("/api/commands/execute")
-async def execute_commands(commands: List[Command]):
+async def execute_commands(commands: Optional[List[Command]] = None):
     global current_execution
+    
+    # 如果没有提供命令，使用预定义的命令列表
+    if commands is None or len(commands) == 0:
+        commands = [Command(**cmd.dict()) for cmd in predefined_commands]
     
     # 重置执行状态
     current_execution = CommandExecution(
@@ -71,27 +89,64 @@ async def execute_commands(commands: List[Command]):
     # 随机打乱命令顺序
     random.shuffle(current_execution.commands)
     
-    # 依次执行命令
-    for cmd in current_execution.commands:
-        # 模拟执行时间
-        time.sleep(cmd.duration)
-        
-        # 更新最终值
-        current_execution.final_value += cmd.effect
-        
-        # 记录执行历史
-        current_execution.execution_history.append({
-            "command_id": cmd.id,
-            "command_name": cmd.name,
-            "effect": cmd.effect,
-            "current_value": current_execution.final_value,
-            "timestamp": time.time()
-        })
-        
-        # 标记命令已执行
-        cmd.executed = True
+    # 返回初始状态和待执行的命令列表
+    return {
+        "final_value": current_execution.final_value,
+        "commands": current_execution.commands,
+        "status": "ready",
+        "remaining_commands": len(current_execution.commands)
+    }
+
+@app.post("/api/commands/execute-next")
+async def execute_next_command():
+    global current_execution
     
-    return current_execution
+    if current_execution is None:
+        return {"status": "no_execution", "error": "没有正在进行的执行任务"}
+    
+    # 查找下一个未执行的命令
+    next_command = None
+    for cmd in current_execution.commands:
+        if not cmd.executed:
+            next_command = cmd
+            break
+    
+    if next_command is None:
+        return {"status": "completed", "final_value": current_execution.final_value}
+    
+    # 模拟执行时间
+    time.sleep(next_command.duration)
+    
+    # 更新最终值
+    current_execution.final_value += next_command.effect
+    
+    # 准备执行历史记录
+    execution_record = {
+        "command_id": next_command.id,
+        "command_name": next_command.name,
+        "effect": next_command.effect,
+        "current_value": current_execution.final_value,
+        "timestamp": time.time()
+    }
+    
+    # 记录执行历史
+    current_execution.execution_history.append(execution_record)
+    
+    # 标记命令已执行
+    next_command.executed = True
+    next_command.progress = 100
+    
+    # 计算剩余未执行命令数量
+    remaining_commands = sum(1 for cmd in current_execution.commands if not cmd.executed)
+    
+    # 返回执行结果
+    return {
+        "command": next_command,
+        "final_value": current_execution.final_value,
+        "execution": execution_record,
+        "status": "in_progress" if remaining_commands > 0 else "completed",
+        "remaining_commands": remaining_commands
+    }
 
 @app.post("/api/commands/execute-one")
 async def execute_one_command(command: Command):
@@ -127,6 +182,7 @@ async def execute_one_command(command: Command):
     
     # 标记命令已执行
     command.executed = True
+    command.progress = 100
     
     # 将命令添加到已执行的命令列表
     current_execution.commands.append(command)

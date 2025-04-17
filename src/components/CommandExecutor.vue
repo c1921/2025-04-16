@@ -22,12 +22,8 @@ interface ExecutionHistory {
   timestamp: number;
 }
 
-const commands = ref<Command[]>([
-  { id: '1', name: '命令A', duration: 1, effect: 2, executed: false, progress: 0 },
-  { id: '2', name: '命令B', duration: 2, effect: -1, executed: false, progress: 0 },
-  { id: '3', name: '命令C', duration: 1.5, effect: 3, executed: false, progress: 0 },
-  { id: '4', name: '命令D', duration: 0.5, effect: 1, executed: false, progress: 0 },
-]);
+// 从后端获取命令列表，而不是在前端定义
+const commands = ref<Command[]>([]);
 
 const finalValue = ref<number>(0);
 const displayValue = ref<number>(0);
@@ -36,7 +32,6 @@ const isExecuting = ref<boolean>(false);
 const error = ref<string | null>(null);
 const statusCheckInterval = ref<number | null>(null);
 const currentCommandIndex = ref<number>(-1);
-const executionQueue = ref<Command[]>([]);
 const progressInterval = ref<number | null>(null);
 
 // 监听最终值的变化，实现平滑动画
@@ -59,37 +54,57 @@ watch(finalValue, (newValue) => {
     
     if (progress < 1) {
       requestAnimationFrame(animate);
-    } else {
-      // 动画完成后，如果还有命令在队列中，执行下一条命令
-      if (executionQueue.value.length > 0) {
-        setTimeout(() => {
-          executeNextCommand();
-        }, 500); // 等待500毫秒后执行下一条命令
-      } else {
-        isExecuting.value = false;
-      }
     }
   };
   
   requestAnimationFrame(animate);
 });
 
+// 从后端获取所有命令
+const fetchCommands = async () => {
+  try {
+    const response = await fetch('http://localhost:8000/api/commands');
+    if (response.ok) {
+      const data = await response.json();
+      commands.value = data;
+    } else {
+      error.value = '获取命令列表失败';
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '获取命令列表失败';
+  }
+};
+
 const executeCommands = async () => {
   try {
     isExecuting.value = true;
     error.value = null;
     
-    // 重置命令状态
-    commands.value.forEach(cmd => {
-      cmd.executed = false;
-      cmd.progress = 0;
-    });
-    
-    // 创建执行队列（深拷贝防止引用问题）
-    executionQueue.value = JSON.parse(JSON.stringify(commands.value));
+    // 清空历史记录
+    executionHistory.value = [];
     currentCommandIndex.value = -1;
     
-    // 开始执行第一条命令
+    // 初始化执行流程
+    const response = await fetch('http://localhost:8000/api/commands/execute', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('执行命令失败，请重试');
+    }
+    
+    const data = await response.json();
+    finalValue.value = data.final_value;
+    
+    // 更新命令列表状态
+    if (data.commands) {
+      commands.value = data.commands;
+    }
+    
+    // 开始逐条执行命令
     executeNextCommand();
   } catch (err) {
     error.value = err instanceof Error ? err.message : '发生未知错误';
@@ -98,34 +113,39 @@ const executeCommands = async () => {
 };
 
 const executeNextCommand = async () => {
-  if (executionQueue.value.length === 0) {
-    isExecuting.value = false;
-    return;
-  }
-  
-  const nextCommand = executionQueue.value.shift();
-  if (!nextCommand) return;
-  
   try {
-    currentCommandIndex.value = commands.value.findIndex(cmd => cmd.id === nextCommand.id);
+    // 查找当前正在执行的命令
+    const currentCmd = commands.value.find(cmd => !cmd.executed);
+    if (currentCmd) {
+      currentCommandIndex.value = commands.value.findIndex(cmd => cmd.id === currentCmd.id);
+    } else {
+      isExecuting.value = false;
+      return;
+    }
     
     // 开始进度条动画
-    startProgressAnimation(currentCommandIndex.value, nextCommand.duration);
+    if (currentCommandIndex.value >= 0) {
+      startProgressAnimation(currentCommandIndex.value, commands.value[currentCommandIndex.value].duration);
+    }
     
-    // 调用API执行单个命令
-    const response = await fetch('http://localhost:8000/api/commands/execute-one', {
+    // 调用API执行下一条命令
+    const response = await fetch('http://localhost:8000/api/commands/execute-next', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(nextCommand),
+      }
     });
     
     if (!response.ok) {
-      throw new Error(`执行命令 ${nextCommand.name} 失败，请重试`);
+      throw new Error('执行命令失败，请重试');
     }
     
     const data = await response.json();
+    
+    if (data.status === 'no_execution' || data.error) {
+      throw new Error(data.error || '没有正在进行的执行任务');
+    }
+    
     finalValue.value = data.final_value;
     
     // 添加到执行历史
@@ -133,21 +153,31 @@ const executeNextCommand = async () => {
       executionHistory.value.push(data.execution);
     }
     
-    // 更新命令状态为已执行
-    if (currentCommandIndex.value >= 0) {
-      commands.value[currentCommandIndex.value].executed = true;
-      commands.value[currentCommandIndex.value].progress = 100; // 设置为100%
+    // 更新命令状态
+    if (data.command) {
+      const cmdIndex = commands.value.findIndex(c => c.id === data.command.id);
+      if (cmdIndex >= 0) {
+        commands.value[cmdIndex].executed = true;
+        commands.value[cmdIndex].progress = 100;
+      }
     }
     
     // 停止进度动画
     stopProgressAnimation();
     
-    // 不需要立即执行下一条命令，watch最终值变化时会触发下一条
+    // 如果还有未执行的命令，继续执行
+    if (data.status === 'in_progress' && data.remaining_commands > 0) {
+      // 延迟一段时间后执行下一条命令，让用户能看到当前命令已完成
+      setTimeout(() => {
+        executeNextCommand();
+      }, 800);
+    } else {
+      isExecuting.value = false;
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '发生未知错误';
     isExecuting.value = false;
-    executionQueue.value = []; // 清空队列
-    stopProgressAnimation(); // 停止进度动画
+    stopProgressAnimation();
   }
 };
 
@@ -199,14 +229,10 @@ const resetExecution = async () => {
     finalValue.value = 0;
     displayValue.value = 0;
     executionHistory.value = [];
-    executionQueue.value = [];
     currentCommandIndex.value = -1;
     
-    // 重置所有命令状态
-    commands.value.forEach(cmd => {
-      cmd.executed = false;
-      cmd.progress = 0;
-    });
+    // 重新获取命令列表（重置状态）
+    await fetchCommands();
     
     // 停止动画
     stopProgressAnimation();
@@ -222,7 +248,10 @@ const resetExecution = async () => {
 };
 
 // 组件加载时初始化
-onMounted(() => {
+onMounted(async () => {
+  // 获取命令列表
+  await fetchCommands();
+  
   // 获取最新状态
   fetchCurrentStatus();
 });
