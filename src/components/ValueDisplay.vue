@@ -23,15 +23,15 @@ const effectDescription = computed(() => {
 </script>
 
 <template>
-  <div class="card bg-base-200 shadow-inner p-6 text-center">
-    <h3 class="text-xl font-bold mb-3">当前数值</h3>
-    <div class="text-7xl font-extrabold transition-all duration-500" 
+  <div class="card bg-base-200 shadow-inner p-3 text-center">
+    <h3 class="text-lg font-bold mb-0">当前数值</h3>
+    <div class="text-6xl font-extrabold transition-all duration-500 my-1" 
          :class="valueColorClass">
       {{ props.value.toFixed(1) }}
     </div>
     
     <!-- 数值效果描述 -->
-    <div class="mt-3 text-sm">
+    <div class="text-xs">
       <span :class="valueColorClass">{{ effectDescription }}</span>
     </div>
   </div>

@@ -339,39 +339,42 @@ const stopExecution = () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-4">
-    <div class="card bg-base-100 shadow-xl">
-      <div class="card-body">
-        <h2 class="card-title">命令执行系统</h2>
-        
-        <div class="my-4">
-          <ValueDisplay :value="displayValue" />
-        </div>
-        
-        <div class="flex items-center gap-2 my-2">
-          <div class="form-control">
-            <label class="label cursor-pointer">
-              <span class="label-text mr-2">自动循环</span>
-              <input type="checkbox" v-model="autoRestart" class="toggle toggle-primary" />
-            </label>
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+    <!-- 左侧控制面板和状态 -->
+    <div class="md:col-span-2">
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body p-3">
+          
+          <div class="my-2">
+            <ValueDisplay :value="displayValue" />
           </div>
+          
+          <div class="flex items-center my-1">
+            <div class="form-control">
+              <label class="label cursor-pointer py-1">
+                <span class="label-text mr-2">自动循环</span>
+                <input type="checkbox" v-model="autoRestart" class="toggle toggle-primary toggle-sm" />
+              </label>
+            </div>
+          </div>
+          
+          <ControlPanel 
+            :is-executing="isExecuting" 
+            :error="error"
+            @start="executeCommands" 
+            @stop="stopExecution" 
+            @reset="resetExecution"
+          />
         </div>
-        
-        <ControlPanel 
-          :is-executing="isExecuting" 
-          :error="error"
-          @start="executeCommands" 
-          @stop="stopExecution" 
-          @reset="resetExecution"
-        />
       </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- 右侧命令列表和执行历史 -->
+    <div class="md:col-span-3">
       <!-- 命令列表 -->
-      <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-          <h2 class="card-title">命令列表</h2>
+      <div class="card bg-base-100 shadow-xl mb-3">
+        <div class="card-body p-3">
+          <h2 class="card-title text-lg mb-1">命令列表</h2>
           <CommandList 
             :commands="commands" 
             :current-command-index="currentCommandIndex"
@@ -381,8 +384,8 @@ const stopExecution = () => {
       
       <!-- 执行历史 -->
       <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-          <h2 class="card-title">执行历史</h2>
+        <div class="card-body p-3">
+          <h2 class="card-title text-lg mb-1">执行历史</h2>
           <ExecutionHistory :history="executionHistory" />
         </div>
       </div>
@@ -396,5 +399,14 @@ const stopExecution = () => {
 }
 .status {
   transition: all 0.3s ease;
+}
+:deep(.btn) {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  height: auto;
+  min-height: 2.5rem;
+}
+:deep(.card-title) {
+  margin-bottom: 0.25rem;
 }
 </style>

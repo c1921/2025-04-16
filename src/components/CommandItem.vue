@@ -63,11 +63,11 @@ const formattedEffect = computed(() => {
 
 <template>
   <div class="card bg-base-200 transition-all duration-300 hover:shadow-md" :class="borderClass">
-    <div class="card-body p-4">
+    <div class="card-body p-2">
       <!-- 命令标题和状态 -->
       <div class="flex justify-between items-center">
-        <h4 class="card-title text-lg">{{ props.command.name }}</h4>
-        <div class="flex items-center gap-2">
+        <h4 class="card-title text-base m-0">{{ props.command.name }}</h4>
+        <div class="flex items-center gap-1">
           <div v-if="props.command.executed" class="status status-success"></div>
           <div v-else-if="props.isCurrentCommand" class="status status-primary animate-pulse"></div>
           <div v-else class="status status-neutral"></div>
@@ -75,24 +75,24 @@ const formattedEffect = computed(() => {
       </div>
       
       <!-- 命令详情 -->
-      <div class="grid grid-cols-2 gap-2 text-sm mt-2">
+      <div class="grid grid-cols-2 gap-1 text-xs mt-1">
         <div class="flex items-center">
-          <span class="icon-[tabler--clock] mr-1"></span>
+          <span class="icon-[tabler--clock] mr-1 text-xs"></span>
           <span>{{ props.command.duration }}秒</span>
         </div>
         <div class="flex items-center">
-          <span class="icon-[tabler--chart-line] mr-1"></span>
+          <span class="icon-[tabler--chart-line] mr-1 text-xs"></span>
           <span :class="effectClass">{{ formattedEffect }}</span>
         </div>
       </div>
       
       <!-- 命令进度条 -->
-      <div class="mt-3">
-        <div class="flex justify-between text-xs mb-1">
+      <div class="mt-1">
+        <div class="flex justify-between text-xs mb-0.5">
           <span :class="statusClass">{{ commandStatus }}</span>
           <span>{{ progressPercent }}%</span>
         </div>
-        <div class="progress h-2">
+        <div class="progress h-1.5">
           <div 
             class="progress-bar transition-all duration-300" 
             :class="progressBarClass"
@@ -114,5 +114,17 @@ const formattedEffect = computed(() => {
 }
 .status {
   transition: all 0.3s ease;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+.status-success {
+  background-color: #10b981;
+}
+.status-primary {
+  background-color: #3b82f6;
+}
+.status-neutral {
+  background-color: #9ca3af;
 }
 </style> 
