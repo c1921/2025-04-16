@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
@@ -38,6 +38,11 @@ class CommandExecution(BaseModel):
     final_value: float = 0
     execution_history: List[dict] = []
 
+class ExecuteRequest(BaseModel):
+    """用于请求执行命令的模型"""
+    commands: Optional[List[Command]] = None
+    initial_value: float = 0.0
+
 # 存储当前执行状态
 current_execution: Optional[CommandExecution] = None
 
@@ -72,17 +77,21 @@ async def get_commands():
     return predefined_commands
 
 @app.post("/api/commands/execute")
-async def execute_commands(commands: Optional[List[Command]] = None):
+async def execute_commands(request: ExecuteRequest = Body(...)):
     global current_execution
     
+    # 获取初始值，默认为0
+    initial_value = request.initial_value
+    
     # 如果没有提供命令，使用预定义的命令列表
+    commands = request.commands
     if commands is None or len(commands) == 0:
         commands = [Command(**cmd.dict()) for cmd in predefined_commands]
     
-    # 重置执行状态
+    # 重置执行状态，但保留初始值
     current_execution = CommandExecution(
         commands=commands,
-        final_value=0,
+        final_value=initial_value,
         execution_history=[]
     )
     
@@ -202,9 +211,12 @@ async def get_execution_status():
 @app.post("/api/commands/reset")
 async def reset_execution():
     global current_execution
+    
+    # 重置执行状态
     current_execution = None
-    logger.info("重置命令执行状态")
-    return {"status": "reset"}
+    
+    # 返回成功消息
+    return {"status": "reset", "message": "执行状态已重置"}
 
 @app.get("/api/health")
 async def health_check():

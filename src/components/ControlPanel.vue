@@ -1,14 +1,18 @@
 <script setup lang="ts">
 interface Props {
   isExecuting: boolean;
-  error: string | null;
+  error?: string | null;
 }
 
 const props = defineProps<Props>();
-const emit = defineEmits(['execute', 'reset']);
+const emit = defineEmits(['start', 'stop', 'reset']);
 
-const executeCommands = () => {
-  emit('execute');
+const startExecution = () => {
+  emit('start');
+};
+
+const stopExecution = () => {
+  emit('stop');
 };
 
 const resetExecution = () => {
@@ -21,12 +25,20 @@ const resetExecution = () => {
     <!-- 执行控制按钮 -->
     <div class="flex flex-col gap-4 mb-6">
       <button class="btn btn-primary btn-lg waves waves-light" 
-              @click="executeCommands" 
+              @click="startExecution" 
               :disabled="props.isExecuting">
         <span class="icon-[tabler--player-play] mr-2" v-if="!props.isExecuting"></span>
         <span class="icon-[tabler--loader-2] animate-spin mr-2" v-else></span>
         {{ props.isExecuting ? '执行中...' : '开始执行' }}
       </button>
+      
+      <button class="btn btn-error" 
+              @click="stopExecution" 
+              :disabled="!props.isExecuting">
+        <span class="icon-[tabler--player-stop] mr-2"></span>
+        停止循环
+      </button>
+      
       <button class="btn btn-outline" 
               @click="resetExecution" 
               :disabled="props.isExecuting">

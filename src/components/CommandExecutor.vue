@@ -34,6 +34,9 @@ const statusCheckInterval = ref<number | null>(null);
 const currentCommandIndex = ref<number>(-1);
 const progressInterval = ref<number | null>(null);
 
+// 添加一个新的ref用于控制是否自动循环
+const autoRestart = ref<boolean>(true);
+
 // 监听最终值的变化，实现平滑动画
 watch(finalValue, (newValue) => {
   const startValue = displayValue.value;
@@ -80,16 +83,26 @@ const executeCommands = async () => {
     isExecuting.value = true;
     error.value = null;
     
-    // 清空历史记录
-    executionHistory.value = [];
+    // 先停止所有进度动画
+    stopProgressAnimation();
+    
+    // 重置命令的执行状态和进度
+    commands.value.forEach(cmd => {
+      cmd.executed = false;
+      cmd.progress = 0;
+    });
+    
     currentCommandIndex.value = -1;
     
-    // 初始化执行流程
+    // 初始化执行流程，传递当前的finalValue
     const response = await fetch('http://localhost:8000/api/commands/execute', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-      }
+      },
+      body: JSON.stringify({
+        initial_value: finalValue.value
+      })
     });
     
     if (!response.ok) {
@@ -97,15 +110,20 @@ const executeCommands = async () => {
     }
     
     const data = await response.json();
-    finalValue.value = data.final_value;
     
-    // 更新命令列表状态
+    // 更新命令列表状态，确保所有进度都为0
     if (data.commands) {
-      commands.value = data.commands;
+      commands.value = data.commands.map((cmd: Command) => ({
+        ...cmd,
+        executed: false,
+        progress: 0
+      }));
     }
     
-    // 开始逐条执行命令
-    executeNextCommand();
+    // 添加短暂延迟，确保UI更新完成后再开始执行
+    setTimeout(() => {
+      executeNextCommand();
+    }, 50);
   } catch (err) {
     error.value = err instanceof Error ? err.message : '发生未知错误';
     isExecuting.value = false;
@@ -153,17 +171,18 @@ const executeNextCommand = async () => {
       executionHistory.value.push(data.execution);
     }
     
-    // 更新命令状态
+    // 更新命令状态，确保进度为100%
     if (data.command) {
       const cmdIndex = commands.value.findIndex(c => c.id === data.command.id);
       if (cmdIndex >= 0) {
+        // 停止进度动画
+        stopProgressAnimation();
+        
+        // 设置命令为已执行状态，进度为100%
         commands.value[cmdIndex].executed = true;
         commands.value[cmdIndex].progress = 100;
       }
     }
-    
-    // 停止进度动画
-    stopProgressAnimation();
     
     // 如果还有未执行的命令，继续执行
     if (data.status === 'in_progress' && data.remaining_commands > 0) {
@@ -172,7 +191,15 @@ const executeNextCommand = async () => {
         executeNextCommand();
       }, 800);
     } else {
-      isExecuting.value = false;
+      // 所有命令执行完毕
+      if (autoRestart.value) {
+        // 如果启用了自动重启，延迟一段时间后开始新的循环
+        setTimeout(() => {
+          executeCommands();
+        }, 1500);
+      } else {
+        isExecuting.value = false;
+      }
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '发生未知错误';
@@ -185,7 +212,16 @@ const startProgressAnimation = (cmdIndex: number, duration: number) => {
   // 清除之前的进度动画
   stopProgressAnimation();
   
-  // 重置进度
+  // 确保所有命令的进度状态正确
+  commands.value.forEach((cmd, index) => {
+    if (index !== cmdIndex && !cmd.executed) {
+      cmd.progress = 0;
+    } else if (cmd.executed) {
+      cmd.progress = 100;
+    }
+  });
+  
+  // 重置当前命令的进度
   if (cmdIndex >= 0 && cmdIndex < commands.value.length) {
     commands.value[cmdIndex].progress = 0;
   }
@@ -198,13 +234,8 @@ const startProgressAnimation = (cmdIndex: number, duration: number) => {
   progressInterval.value = window.setInterval(() => {
     if (cmdIndex >= 0 && cmdIndex < commands.value.length) {
       const currentProgress = commands.value[cmdIndex].progress || 0;
-      const newProgress = Math.min(currentProgress + (100 / totalSteps), 100);
+      const newProgress = Math.min(currentProgress + (100 / totalSteps), 99); // 最多到99%，等待后端确认完成
       commands.value[cmdIndex].progress = newProgress;
-      
-      // 如果达到100%，停止动画
-      if (newProgress >= 100) {
-        stopProgressAnimation();
-      }
     }
   }, interval);
 };
@@ -218,6 +249,24 @@ const stopProgressAnimation = () => {
 
 const resetExecution = async () => {
   try {
+    // 停止自动循环
+    autoRestart.value = false;
+    isExecuting.value = false;
+    error.value = null;
+    
+    // 重置命令状态和执行历史
+    executionHistory.value = [];
+    finalValue.value = 0;
+    displayValue.value = 0;
+    currentCommandIndex.value = -1;
+    
+    // 重置命令状态
+    commands.value.forEach(cmd => {
+      cmd.executed = false;
+      cmd.progress = 0;
+    });
+    
+    // 调用后端重置API
     const response = await fetch('http://localhost:8000/api/commands/reset', {
       method: 'POST',
     });
@@ -225,25 +274,8 @@ const resetExecution = async () => {
     if (!response.ok) {
       throw new Error('重置失败，请重试');
     }
-    
-    finalValue.value = 0;
-    displayValue.value = 0;
-    executionHistory.value = [];
-    currentCommandIndex.value = -1;
-    
-    // 重新获取命令列表（重置状态）
-    await fetchCommands();
-    
-    // 停止动画
-    stopProgressAnimation();
-    
-    // 停止状态检查
-    if (statusCheckInterval.value) {
-      clearInterval(statusCheckInterval.value);
-      statusCheckInterval.value = null;
-    }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '发生未知错误';
+    error.value = err instanceof Error ? err.message : '重置失败';
   }
 };
 
@@ -298,41 +330,59 @@ onUnmounted(() => {
   
   stopProgressAnimation();
 });
+
+// 添加一个方法来停止自动循环
+const stopExecution = () => {
+  autoRestart.value = false;
+  isExecuting.value = false;
+};
 </script>
 
 <template>
-  <div class="card bg-base-100 shadow-xl">
-    <div class="card-body">
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- 左侧面板：当前数值和控制按钮 -->
-        <div class="lg:col-span-1">
-          <div class="flex flex-col h-full">
-            <!-- 实时数值显示 -->
-            <div class="mb-6">
-              <ValueDisplay :value="displayValue" />
-            </div>
-            
-            <!-- 控制面板 -->
-            <ControlPanel
-              :isExecuting="isExecuting"
-              :error="error"
-              @execute="executeCommands"
-              @reset="resetExecution"
-            />
+  <div class="flex flex-col gap-4">
+    <div class="card bg-base-100 shadow-xl">
+      <div class="card-body">
+        <h2 class="card-title">命令执行系统</h2>
+        
+        <div class="my-4">
+          <ValueDisplay :value="displayValue" />
+        </div>
+        
+        <div class="flex items-center gap-2 my-2">
+          <div class="form-control">
+            <label class="label cursor-pointer">
+              <span class="label-text mr-2">自动循环</span>
+              <input type="checkbox" v-model="autoRestart" class="toggle toggle-primary" />
+            </label>
           </div>
         </div>
         
-        <!-- 右侧面板：命令列表和执行历史 -->
-        <div class="lg:col-span-2">
-          <!-- 命令列表 -->
-          <div class="mb-6">
-            <CommandList 
-              :commands="commands" 
-              :currentCommandIndex="currentCommandIndex" 
-            />
-          </div>
-          
-          <!-- 执行历史 -->
+        <ControlPanel 
+          :is-executing="isExecuting" 
+          :error="error"
+          @start="executeCommands" 
+          @stop="stopExecution" 
+          @reset="resetExecution"
+        />
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- 命令列表 -->
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title">命令列表</h2>
+          <CommandList 
+            :commands="commands" 
+            :current-command-index="currentCommandIndex"
+          />
+        </div>
+      </div>
+      
+      <!-- 执行历史 -->
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title">执行历史</h2>
           <ExecutionHistory :history="executionHistory" />
         </div>
       </div>
@@ -347,4 +397,4 @@ onUnmounted(() => {
 .status {
   transition: all 0.3s ease;
 }
-</style> 
+</style>
