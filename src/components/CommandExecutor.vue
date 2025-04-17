@@ -223,9 +223,42 @@ const resetExecution = async () => {
 
 // 组件加载时初始化
 onMounted(() => {
-  // 初始化显示值
-  displayValue.value = finalValue.value;
+  // 获取最新状态
+  fetchCurrentStatus();
 });
+
+// 获取当前状态
+const fetchCurrentStatus = async () => {
+  try {
+    const response = await fetch('http://localhost:8000/api/commands/status');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.status !== 'no_execution' && data.final_value !== undefined) {
+        finalValue.value = data.final_value;
+        displayValue.value = data.final_value;
+        
+        // 更新执行历史
+        if (data.execution_history) {
+          executionHistory.value = data.execution_history;
+        }
+        
+        // 更新命令状态
+        if (data.commands) {
+          data.commands.forEach((cmd: Command) => {
+            const index = commands.value.findIndex(c => c.id === cmd.id);
+            if (index >= 0) {
+              commands.value[index].executed = cmd.executed;
+              commands.value[index].progress = cmd.executed ? 100 : 0;
+            }
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('获取状态失败:', err);
+    // 不显示错误，静默处理
+  }
+};
 
 // 组件卸载时清理定时器
 onUnmounted(() => {
